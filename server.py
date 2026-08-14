@@ -44,7 +44,9 @@ def server_loop():
 
 # Start the server
 if __name__ == "__main__":
-    server_thread = threading.Thread(target=server_loop)
-    server_thread.daemon = True
-    server_thread.start()
-    print("Server started. Ready to receive data.")
+    try:
+        print("Server started. Ready to receive data.")
+        # Run server loop on main thread so the process stays alive
+        server_loop()
+    except KeyboardInterrupt:
+        print("Server stopped by user.")
