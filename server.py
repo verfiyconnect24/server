@@ -89,13 +89,18 @@ def read_recent_logs_from_db():
 
 # Server loop
 def server_loop():
-    SECRET_KEY = os.environ.get("SECRET_KEY", "")
-
     class RequestHandler(BaseHTTPRequestHandler):
+        def _get_path(self):
+            return urllib.parse.urlparse(self.path).path
+
+        def _get_valid_key(self):
+            return os.environ.get("VIEW_KEY") or os.environ.get("SECRET_KEY")
+
         def do_GET(self):
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
             query_params = urllib.parse.parse_qs(parsed_path.query)
+            secret_key = self._get_valid_key()
 
             if path in ('/', '/index.html'):
                 body = b"<html><body><h1>Server is running</h1></body></html>"
@@ -114,7 +119,7 @@ def server_loop():
             elif path == '/view-db-logs':
                 provided_key = query_params.get('key', [None])[0]
 
-                if provided_key != SECRET_KEY:
+                if provided_key != secret_key:
                     body = b"403 Forbidden: Invalid or missing secret key."
                     self.send_response(403)
                     self.send_header("Content-type", "text/plain")
