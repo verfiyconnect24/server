@@ -4,10 +4,88 @@ import os
 import urllib.parse
 from datetime import datetime
 
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
 # Server settings
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 8080
 LOG_FILE = "RECEIVED_data.txt"
+DB_TABLE = "received_data"
+
+
+def get_db_url():
+    return os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+
+
+def ensure_db_table(conn):
+    if psycopg2 is None:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {DB_TABLE} (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                payload JSONB NOT NULL
+            );
+            """
+        )
+    conn.commit()
+
+
+def write_payload_to_db(payload):
+    db_url = get_db_url()
+    if not db_url or psycopg2 is None:
+        return False
+
+    conn = None
+    try:
+        conn = psycopg2.connect(db_url)
+        ensure_db_table(conn)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {DB_TABLE} (timestamp, payload) VALUES (%s, %s)",
+                (timestamp, json.dumps(payload)),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def read_recent_logs_from_db():
+    db_url = get_db_url()
+    if not db_url or psycopg2 is None:
+        return None
+
+    conn = None
+    try:
+        conn = psycopg2.connect(db_url)
+        ensure_db_table(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT timestamp, payload FROM {DB_TABLE} ORDER BY id DESC LIMIT 50"
+            )
+            rows = cur.fetchall()
+        if not rows:
+            return []
+        return [
+            f"{timestamp} | {json.dumps(payload, ensure_ascii=False)}"
+            for timestamp, payload in reversed(rows)
+        ]
+    except Exception:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
 
 # Server loop
 def server_loop():
