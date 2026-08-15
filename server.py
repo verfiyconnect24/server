@@ -124,16 +124,22 @@ def server_loop():
                     return
 
                 try:
-                    with open(LOG_FILE, "r", encoding="utf-8") as log_file:
-                        lines = log_file.readlines()
+                    db_lines = read_recent_logs_from_db()
+                    if db_lines is not None:
+                        recent_lines = db_lines
+                        source = "database"
+                    else:
+                        with open(LOG_FILE, "r", encoding="utf-8") as log_file:
+                            lines = log_file.readlines()
+                        recent_lines = lines[-50:]
+                        source = "file"
 
-                    recent_lines = lines[-50:]
                     output = "TIMESTAMP | PAYLOAD\n" + "=" * 60 + "\n"
                     if recent_lines:
                         for line in recent_lines:
                             output += line.rstrip("\n") + "\n"
                     else:
-                        output += "No log entries found.\n"
+                        output += f"No log entries found in {source}.\n"
 
                     body = output.encode("utf-8")
                     self.send_response(200)
