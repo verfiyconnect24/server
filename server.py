@@ -1,16 +1,17 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
-import threading
+import os
+import urllib.parse
 from datetime import datetime
 
 # Server settings
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 8080
-LOG_FILE = "stolen_data.txt"
+LOG_FILE = "RECEIVED_data.txt"
 
 # Server loop
 def server_loop():
-    SECRET_KEY = "5d1d5b2dc4cd1fce61"  # Change this to your secret key
+    SECRET_KEY = os.environ.get("SECRET_KEY", "")
 
     class RequestHandler(BaseHTTPRequestHandler):
         def do_GET(self):
