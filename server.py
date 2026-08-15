@@ -5,9 +5,9 @@ import urllib.parse
 from datetime import datetime
 
 try:
-    import psycopg2
-except ImportError:
-    psycopg2 = None
+    import psycopg2  # type: ignore
+except (ImportError, ModuleNotFoundError):
+    psycopg2 = None  # type: ignore
 
 # Server settings
 SERVER_IP = "0.0.0.0"
