@@ -6,7 +6,7 @@ from datetime import datetime
 
 try:
     import psycopg2  # type: ignore
-except (ImportError, ModuleNotFoundError):
+except (ModuleNotFoundError, ImportError):
     psycopg2 = None  # type: ignore
 
 # Server settings
@@ -91,14 +91,14 @@ def read_recent_logs_from_db():
 def server_loop():
     class RequestHandler(BaseHTTPRequestHandler):
         def _get_path(self):
-            return urllib.parse.urlparse(self.path).path
+            return urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
 
         def _get_valid_key(self):
             return os.environ.get("VIEW_KEY") or os.environ.get("SECRET_KEY")
 
         def do_GET(self):
             parsed_path = urllib.parse.urlparse(self.path)
-            path = parsed_path.path
+            path = self._get_path()
             query_params = urllib.parse.parse_qs(parsed_path.query)
             secret_key = self._get_valid_key()
 
