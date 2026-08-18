@@ -1,8 +1,11 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import logging
 import os
 import urllib.parse
 from datetime import datetime
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 try:
     import psycopg2  # type: ignore
@@ -235,6 +238,14 @@ def server_loop():
 
                 with open(LOG_FILE, "a", encoding="utf-8") as f:
                     f.write(f"[{timestamp}] {parsed_data}\n")
+
+                db_saved = write_payload_to_db(parsed_data)
+                if db_saved:
+                    logging.info("Payload saved to Postgres database")
+                else:
+                    logging.warning("Payload written to file only; DB save unavailable or failed")
+
+                logging.info("Received POST payload from %s: %s", self.client_address[0], parsed_data)
 
                 body = b"Data received!"
                 self.send_response(200)
