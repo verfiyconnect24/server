@@ -1,9 +1,9 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 import os
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
@@ -14,7 +14,7 @@ except (ModuleNotFoundError, ImportError):
 
 # Server settings
 SERVER_IP = "0.0.0.0"
-SERVER_PORT = 8080
+SERVER_PORT = int(os.environ.get("PORT", "8080"))
 LOG_FILE = "RECEIVED_data.txt"
 DB_TABLE = "received_data"
 
@@ -24,8 +24,6 @@ def get_db_url():
 
 
 def ensure_db_table(conn):
-    if psycopg2 is None:
-        return
     with conn.cursor() as cur:
         cur.execute(
             f"""
@@ -41,14 +39,18 @@ def ensure_db_table(conn):
 
 def write_payload_to_db(payload):
     db_url = get_db_url()
-    if not db_url or psycopg2 is None:
+    if not db_url:
+        logging.warning("DATABASE_URL/POSTGRES_URL is not configured")
+        return False
+    if psycopg2 is None:
+        logging.warning("psycopg2 is not installed; payload was not saved to Postgres")
         return False
 
     conn = None
     try:
         conn = psycopg2.connect(db_url)
         ensure_db_table(conn)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(timezone.utc).isoformat()
         with conn.cursor() as cur:
             cur.execute(
                 f"INSERT INTO {DB_TABLE} (timestamp, payload) VALUES (%s, %s)",
@@ -57,6 +59,7 @@ def write_payload_to_db(payload):
         conn.commit()
         return True
     except Exception:
+        logging.exception("Failed to save payload to Postgres")
         return False
     finally:
         if conn is not None:
@@ -84,6 +87,7 @@ def read_recent_logs_from_db():
             for timestamp, payload in reversed(rows)
         ]
     except Exception:
+        logging.exception("Failed to read logs from Postgres")
         return None
     finally:
         if conn is not None:
@@ -122,7 +126,7 @@ def server_loop():
             elif path == '/view-db-logs':
                 provided_key = query_params.get('key', [None])[0]
 
-                if provided_key != secret_key:
+                if not secret_key or provided_key != secret_key:
                     body = b"403 Forbidden: Invalid or missing secret key."
                     self.send_response(403)
                     self.send_header("Content-type", "text/plain")
@@ -156,9 +160,9 @@ def server_loop():
                     self.end_headers()
                     self.wfile.write(body)
                 except FileNotFoundError:
-                    body = b"No log file found."
-                    self.send_response(404)
-                    self.send_header("Content-type", "text/plain")
+                    body = b"TIMESTAMP | PAYLOAD\n============================================================\nNo log entries found in file.\n"
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
@@ -178,7 +182,8 @@ def server_loop():
                 self.wfile.write(body)
 
         def do_HEAD(self):
-            path = self.path.split("?", 1)[0]
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path.rstrip("/") or "/"
 
             if path in ('/', '/index.html'):
                 body = b"<html><body><h1>Server is running</h1></body></html>"
@@ -191,6 +196,14 @@ def server_loop():
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain")
                 self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+            elif path == '/view-db-logs':
+                query_params = urllib.parse.parse_qs(parsed_path.query)
+                provided_key = query_params.get('key', [None])[0]
+                secret_key = self._get_valid_key()
+                status = 200 if secret_key and provided_key == secret_key else 403
+                self.send_response(status)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
                 self.end_headers()
             else:
                 body = b"Not Found"
@@ -262,6 +275,7 @@ def server_loop():
                 self.end_headers()
                 self.wfile.write(body)
             except Exception:
+                logging.exception("Unexpected error while processing POST from %s", self.client_address[0])
                 body = b"Internal Server Error"
                 self.send_response(500)
                 self.send_header("Content-type", "text/plain")
@@ -269,15 +283,14 @@ def server_loop():
                 self.end_headers()
                 self.wfile.write(body)
 
-    httpd = HTTPServer((SERVER_IP, SERVER_PORT), RequestHandler)
-    print(f"Server running on port {SERVER_PORT}...")
+    httpd = ThreadingHTTPServer((SERVER_IP, SERVER_PORT), RequestHandler)
+    logging.info("Server running on %s:%s", SERVER_IP, SERVER_PORT)
     httpd.serve_forever()
 
 # Start the server
 if __name__ == "__main__":
     try:
-        print("Server started. Ready to receive data.")
-        # Run server loop on main thread so the process stays alive
+        logging.info("Server started. Ready to receive data.")
         server_loop()
     except KeyboardInterrupt:
-        print("Server stopped by user.")
+        logging.info("Server stopped by user.")
